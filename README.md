@@ -1,10 +1,3 @@
----
-header-includes:
-    - \usepackage[most]{tcolorbox}
-    - \definecolor{light-yellow}{rgb}{1, 0.95, 0.7}
-    - \newtcolorbox{myquote}{colback=light-yellow,grow to right by=-10mm,grow to left by=-10mm, boxrule=0pt,boxsep=0pt,breakable}
-    - \newcommand{\todo}[1]{\begin{myquote} \textbf{TODO:} \emph{#1} \end{myquote}}
----
 
 # ComB: A Flexible, Application-Oriented Benchmark for Edge Computing
 
@@ -26,6 +19,10 @@ for supporting operations of applications designed for the edge.
 ---
 
 If you use ComB for your own research, please cite our [paper](https://doi.org/10.1145/3517206.3526269).
+
+> Simon Bäurle and Nitinder Mohan. 2022. ComB: a flexible, application-oriented benchmark for edge computing. In Proceedings of the 5th International Workshop on Edge Systems, Analytics and Networking (EdgeSys '22). Association for Computing Machinery, New York, NY, USA, 19–24. DOI:https://doi.org/10.1145/3517206.3526269
+
+---
 
 ## Requirements
 

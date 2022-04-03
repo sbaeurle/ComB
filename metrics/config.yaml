@@ -1,0 +1,52 @@
+RootFolder: results
+DateFormat: 20060102_150405
+PlottingScript: plotting.py
+Endpoints:
+  - Name: MOT
+    Url: /pipeline-results
+    Module: MOT
+    Config:
+      MotScript: modules/TrackEval/scripts/run_mot_challenge.py
+      Benchmark: MOT20
+      SplitToEval: train
+      SeqInfo: MOT20-01
+      GTFolder: data
+    Fields: ["frame-number", "id", "bb_left", "bb_top", "bb_width", "bb_height", "conf", "x", "y", "z"]
+    Outputs: ["MOT20-01.txt"]
+    Metrics:
+      - HOTA: []
+      - DetA: []
+      - MOTA: []
+      - MOTP: []
+  - Name: aggregation
+    Url: /aggregation
+    Module: GENERIC
+    Fields: ["frame-number", "skipped-frames", "processing-time", "encoding-time", "metric-time"]
+    Header: True
+    Outputs: ["aggregation.csv"]
+    Metrics:
+      - skipped-frames: [MAX]
+      - processing-time: [MIN, MAX, AVG]
+      - encoding-time: [MIN, MAX, AVG]
+      - metric-time: [MIN, MAX, AVG]
+  - Name: tracking
+    Url: /tracking
+    Module: GENERIC
+    Fields: ["frame-number", "tracked-objects", "processing-time", "metric-time", "result-time"]
+    Header: True
+    Outputs: ["tracking.csv"]
+    Metrics:
+      - tracked-objects: [AVG]
+      - processing-time: [MIN, MAX, AVG]
+      - metric-time: [MIN, MAX, AVG]
+      - result-time: [MIN, MAX, AVG]
+  - Name: detection
+    Url: /detection
+    Module: GENERIC
+    Fields: ["frame-number", "detected-objects", "processing-time", "metric-time"]
+    Header: True
+    Outputs: ["detection.csv"]
+    Metrics:
+      - detected-objects: [AVG]
+      - processing-time: [MIN, MAX, AVG]
+      - metric-time: [MIN, MAX, AVG]

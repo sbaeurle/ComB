@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+import "detection.proto";
+
+package tracking;
+
+message Empty {
+}
+
+message Frame {
+    bytes image = 1;
+    uint64 timestamp = 2;
+    uint64 frame_number = 3;
+}
+
+message Detections {
+    Frame frame = 1;
+    
+    message Detection {
+        repeated int64 bbox = 1;
+        float conf = 2;
+        string clazz = 3;
+    }
+
+    repeated Detection detections = 2;
+}
+
+service ObjectTracking {
+    rpc AddDetections(Detections) returns (Empty);
+    rpc TrackObjects(Frame) returns (Empty);
+}

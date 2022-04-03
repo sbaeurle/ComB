@@ -1,0 +1,61 @@
+Evaluation: http://127.0.0.1:8000
+SSH:
+  User: ubuntu
+  KeyFile: keypath
+  Commands:
+    - cpu: "docker run --name {{.Name}}{{range $i, $v := .Ports}} -p {{$v}}{{end}}{{range $i, $m := .Mounts}} -v {{$m}}{{end}} {{.Image}}:{{.Tag}} {{.Command}}"
+    - opencl: "docker run --device /dev/dri --name {{.Name}}{{range $i, $v := .Ports}} -p {{$v}}{{end}}{{range $i, $m := .Mounts}} -v {{$m}} {{end}} {{.Image}}:{{.Tag}} {{.Command}}"
+    - cuda: "docker run --gpus all --name {{.Name}}{{range $i, $v := .Ports}} -p {{$v}}{{end}}{{range $i, $m := .Mounts}} -v {{$m}} {{end}} {{.Image}}:{{.Tag}} {{.Command}}"
+    - l4t: "docker run --gpus all --name {{.Name}}{{range $i, $v := .Ports}} -p {{$v}}{{end}}{{range $i, $m := .Mounts}} -v {{$m}}{{end}} {{.Image}}:{{.Tag}} {{.Command}}"
+NodeGroups:
+  - Name: APU
+    Arch: x86
+    Capabilities: [cpu, opencl]
+    Nodes: [127.0.0.1]
+    NodeCapacity: 2
+  - Name: Jetson
+    Arch: arm64
+    Capabilities: [cpu, l4t]
+    Nodes: [127.0.0.1]
+    NodeCapacity: 1
+  - Name: PI4
+    Arch: arm64
+    Capabilities: [cpu]
+    Nodes: [127.0.0.1, 127.0.0.1]
+    NodeCapacity: 1
+  - Name: Workstation
+    Arch: x86
+    Capabilities: [cuda]
+    Nodes: [127.0.0.1]
+    NodeCapacity: 1
+Workload:
+  - Name: Tracking
+    Image: sbaeurle/tracking
+    Ports:
+      - 8181:8181
+    Tags: [cpu]
+    Arch: [x86, arm64]
+    Command: python3 object_tracking.py --tracker kcf --log-level DEBUG --evaluation-address {{.Evaluation}}
+  - Name: Detection
+    Image: sbaeurle/detection
+    Ports: 
+      - 8080:8080
+    Tags: [cpu, opencl, l4t, cuda]
+    Arch: [x86, arm64]
+    Command: python3 object_detection.py --config models/yolov3/yolov3.cfg --model models/yolov3/yolov3.weights --classes models/coco.names --tracker-address {{.Tracking}}:8181 --log-level DEBUG --evaluation-address {{.Evaluation}}
+  - Name: Source
+    Image: sbaeurle/source
+    Ports: 
+      - 8554:8554
+    Mounts: 
+      - /tmp/mot20-01.mp4:/data/mot20-01.mp4
+    LocalData:
+      - /home/simon/projects/study/thesis/benchmarks/video_source/data/mot20-01.mp4
+    Tags: [cpu]
+    Arch: [arm64]
+    Command: ./server data/mot20-01.mp4
+  - Name: Aggregation
+    Image: sbaeurle/aggregation
+    Tags: [cpu, opencl]
+    Arch: [x86, arm64]
+    Command: python3 video_aggregation.py --grpc --video-source rtsp://{{.Source}}:8554/data/mot20-01.mp4 --detector-address {{.Detection}}:8080 --tracker-address {{.Tracking}}:8181 --log-level DEBUG --frame-rate 5 --queue-size 30 --evaluation-address {{.Evaluation}}

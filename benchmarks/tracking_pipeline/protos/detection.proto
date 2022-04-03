@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package detection;
+
+message Empty {
+}
+
+message Frame {
+    bytes image = 1;
+    uint64 timestamp = 2;
+    uint64 frame_number = 3;
+}
+
+service ObjectDetection {
+    rpc DetectObjects(Frame) returns (Empty);
+}

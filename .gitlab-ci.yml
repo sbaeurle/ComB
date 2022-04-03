@@ -1,0 +1,119 @@
+stages:
+  - base
+  - build
+  - test
+
+variables:
+  BASE: opencv:4.5.3
+
+.docker:
+  image: docker:20.10.9
+  services:
+    - name: docker:dind
+  variables:
+    CI_BUILD_ARCHS: "linux/arm64,linux/amd64"
+    DOCKER_DIRVER: "overlay2"
+    DOCKER_TLS_CERTDIR: ""
+    DOCKER_HOST: tcp://docker:2375
+  before_script:
+    - docker login -u $DOCKER_REGISTRY_USER -p $DOCKER_REGISTRY_TOKEN
+    - apk add curl
+    - mkdir -p ~/.docker/cli-plugins
+    - curl -sSLo ~/.docker/cli-plugins/docker-buildx https://github.com/docker/buildx/releases/download/v0.6.3/buildx-v0.6.3.linux-amd64
+    - chmod +x ~/.docker/cli-plugins/docker-buildx
+    - docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+    - docker buildx create --use
+
+build_opencv_cpu:
+  extends: .docker
+  stage: base
+  timeout: 4 hours
+  script:
+    - cd benchmarks/tracking_pipeline
+    - docker buildx build --platform $CI_BUILD_ARCHS --cache-from=$DOCKER_REGISTRY_USER/opencv:4.5.3-cpu --progress plain --tag $DOCKER_REGISTRY_USER/opencv:4.5.3-cpu --file docker/Dockerfile.cpu --build-arg OPENCV_VERSION=4.5.3 --build-arg BUILDKIT_INLINE_CACHE=1 --push .
+
+build_opencv_cuda:
+  extends: .docker
+  stage: base
+  timeout: 8 hours
+  needs: ["build_opencv_cpu"]
+  script:
+    - cd benchmarks/tracking_pipeline
+    - docker buildx build --platform linux/amd64 --cache-from=$DOCKER_REGISTRY_USER/opencv:4.5.3-cuda --progress plain --tag $DOCKER_REGISTRY_USER/opencv:4.5.3-cuda --file docker/Dockerfile.cuda --build-arg OPENCV_VERSION=4.5.3 --build-arg BUILDKIT_INLINE_CACHE=1 --push .
+
+build_opencv_opencl:
+  extends: .docker
+  stage: base
+  timeout: 4 hours
+  needs: ["build_opencv_cuda"]
+  script:
+    - cd benchmarks/tracking_pipeline
+    - docker buildx build --platform linux/amd64 --cache-from=$DOCKER_REGISTRY_USER/opencv:4.5.3-opencl --progress plain --tag $DOCKER_REGISTRY_USER/opencv:4.5.3-opencl --file docker/Dockerfile.opencl --build-arg OPENCV_VERSION=4.5.3 --build-arg BUILDKIT_INLINE_CACHE=1 --push .
+
+build_opencv_l4t:
+  extends: .docker
+  stage: base
+  timeout: 1 hours
+  needs: ["build_opencv_opencl"]
+  script:
+    - cd benchmarks/tracking_pipeline
+    - docker buildx build --platform linux/arm64 --cache-from=$DOCKER_REGISTRY_USER/opencv:4.5.3-l4t --progress plain --tag $DOCKER_REGISTRY_USER/opencv:4.5.3-l4t --file docker/Dockerfile.l4t --build-arg OPENCV_VERSION=4.5.3 --build-arg BUILDKIT_INLINE_CACHE=1 --push .
+    
+build_aggregation:
+  extends: .docker
+  stage: build
+  timeout: 2 hours
+  script:
+    - cd benchmarks/tracking_pipeline
+    - docker buildx build --platform $CI_BUILD_ARCHS --cache-from=$DOCKER_REGISTRY_USER/aggregation:cpu --progress plain --tag $DOCKER_REGISTRY_USER/aggregation:cpu --file docker/Dockerfile.aggregation --build-arg BASE=$DOCKER_REGISTRY_USER/$BASE-cpu --build-arg BUILDKIT_INLINE_CACHE=1 --push .
+    - docker buildx build --platform linux/amd64 --cache-from=$DOCKER_REGISTRY_USER/aggregation:opencl --progress plain --tag $DOCKER_REGISTRY_USER/aggregation:opencl --file docker/Dockerfile.aggregation --build-arg BASE=$DOCKER_REGISTRY_USER/$BASE-opencl --build-arg BUILDKIT_INLINE_CACHE=1 --push .
+
+build_detection:
+  extends: .docker
+  stage: build
+  timeout: 4 hours
+  needs: ["build_aggregation"]
+  script:
+    - cd benchmarks/tracking_pipeline
+    - docker buildx build --platform $CI_BUILD_ARCHS --cache-from=$DOCKER_REGISTRY_USER/detection:cpu --progress plain --tag $DOCKER_REGISTRY_USER/detection:cpu --file docker/Dockerfile.detection --build-arg BASE=$DOCKER_REGISTRY_USER/$BASE-cpu --build-arg BUILDKIT_INLINE_CACHE=1 --push .
+    - docker buildx build --platform linux/amd64 --cache-from=$DOCKER_REGISTRY_USER/detection:opencl --progress plain --tag $DOCKER_REGISTRY_USER/detection:opencl --file docker/Dockerfile.detection --build-arg BASE=$DOCKER_REGISTRY_USER/$BASE-opencl --build-arg BUILDKIT_INLINE_CACHE=1 --push .
+    - docker buildx build --platform linux/amd64 --cache-from=$DOCKER_REGISTRY_USER/detection:cuda --progress plain --tag $DOCKER_REGISTRY_USER/detection:cuda --file docker/Dockerfile.detection --build-arg BASE=$DOCKER_REGISTRY_USER/$BASE-cuda --build-arg BUILDKIT_INLINE_CACHE=1 --push .
+    - docker buildx build --platform linux/arm64 --cache-from=$DOCKER_REGISTRY_USER/detection:l4t --progress plain --tag $DOCKER_REGISTRY_USER/detection:l4t --file docker/Dockerfile.detection --build-arg BASE=$DOCKER_REGISTRY_USER/$BASE-l4t --build-arg BUILDKIT_INLINE_CACHE=1 --push .
+
+build_tracking:
+  extends: .docker
+  stage: build
+  timeout: 2 hours
+  needs: ["build_detection"]
+  script:
+    - cd benchmarks/tracking_pipeline
+    - docker buildx build --platform $CI_BUILD_ARCHS --cache-from=$DOCKER_REGISTRY_USER/tracking:cpu --progress plain --tag $DOCKER_REGISTRY_USER/tracking:cpu --file docker/Dockerfile.tracking --build-arg BASE=$DOCKER_REGISTRY_USER/$BASE-cpu --build-arg BUILDKIT_INLINE_CACHE=1 --push .
+
+build_source:
+  extends: .docker
+  stage: build
+  timeout: 1 hours
+  needs: ["build_tracking"]
+  script:
+    - cd benchmarks/video_source
+    - docker buildx build --platform $CI_BUILD_ARCHS --cache-from=$DOCKER_REGISTRY_USER/source:cpu --progress plain --tag $DOCKER_REGISTRY_USER/source:cpu --file Dockerfile --build-arg BUILDKIT_INLINE_CACHE=1 --push .
+
+build_evaluation:
+  image: golang:1.16.5
+  stage: build
+  script:
+    - cd evaluation
+    - go build
+  artifacts:
+    paths:
+      - evaluation/evaluation
+
+build_orchestration:
+  image: golang:1.16.5
+  stage: build
+  script:
+    - cd orchestration
+    - go build
+  artifacts:
+    paths:
+      - orchestration/orchestration

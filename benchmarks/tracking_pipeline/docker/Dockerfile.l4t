@@ -1,0 +1,62 @@
+FROM nvcr.io/nvidia/l4t-base:r32.6.1 AS builder
+LABEL maintainer="sbaeurle, simon.baeurle@tum.de"
+ARG TARGETPLATFORM
+ARG OPENCV_VERSION
+
+RUN apt-get update && apt-get -y install wget python3.8 python3.8-dev python3-distutils ca-certificates gnupg2 && ln -s -f /usr/bin/python3.8 /usr/bin/python3
+RUN wget -qO /tmp/get-pip.py https://bootstrap.pypa.io/get-pip.py && python3 /tmp/get-pip.py
+RUN python3 -m pip install numpy
+
+RUN apt-key adv --fetch-key http://repo.download.nvidia.com/jetson/jetson-ota-public.asc
+
+RUN echo "deb https://repo.download.nvidia.com/jetson/common r32.6 main" >> /etc/apt/sources.list.d/nvidia-l4t-apt-source.list && echo "deb https://repo.download.nvidia.com/jetson/t194 r32.6 main" >> /etc/apt/sources.list.d/nvidia-l4t-apt-source.list
+
+# Install Build Tools and Libraries
+RUN apt-get update && apt-get -y install make cmake build-essential wget cmake pkg-config libarchive-tools \
+    libjpeg-dev libpng-dev libtiff-dev \
+    libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libavresample-dev \
+    libv4l-dev libxvidcore-dev libx264-dev libatlas-base-dev gfortran \
+    cuda-compiler-10-2 cuda-minimal-build-10-2 cuda-libraries-dev-10-2      libcudnn8-dev
+
+# Download and unpack opencv + opencv_contrib sources
+RUN wget -qO opencv.zip https://github.com/opencv/opencv/archive/${OPENCV_VERSION}.zip \
+    && wget -qO opencv_contrib.zip https://github.com/opencv/opencv_contrib/archive/${OPENCV_VERSION}.zip \
+    && mkdir opencv opencv_contrib \
+    && bsdtar --strip-components=1 -C opencv/ -xvf opencv.zip \
+    && bsdtar --strip-components=1 -C opencv_contrib/ -xvf opencv_contrib.zip
+
+# Change into workdir for cmake build of opencv
+WORKDIR /opencv/build/
+
+# Configure cmake build
+# TODO:
+RUN mkdir install
+RUN cmake -D CMAKE_BUILD_TYPE=RELEASE -D CMAKE_INSTALL_PREFIX=install -D OPENCV_EXTRA_MODULES_PATH=../../opencv_contrib/modules -D OPENCV_ENABLE_NONFREE=ON -D OPENCV_GENERATE_PKGCONFIG=ON -D PYTHON_EXECUTABLE=/usr/bin/python3 -D WITH_GTK=OFF -D BUILD_JAVA=OFF -D BUILD_TESTS=OFF -D BUILD_PERF_TESTS=OFF -D BUILD_EXAMPLES=OFF -D ENABLE_NEON=ON -D WITH_OPENCL=OFF -D OPENCV_DNN_OPENCL=OFF -D WITH_CUDA=ON -D OPENCV_DNN_CUDA=ON -D CUDA_ARCH_BIN="5.3,6.2,7.2" -D CUDA_ARCH_PTX="" ..
+
+# Build and install opencv
+RUN make -j$(nproc) && make install
+
+FROM nvcr.io/nvidia/l4t-base:r32.6.1
+LABEL maintainer="sbaeurle, simon.baeurle@tum.de"
+ENV PYTHONPATH=/lib/python3.8/dist-packages/
+
+RUN apt-get update && apt-get -y install ffmpeg libavcodec-extra ca-certificates gnupg2
+
+RUN apt-key adv --fetch-key http://repo.download.nvidia.com/jetson/jetson-ota-public.asc
+
+RUN echo "deb https://repo.download.nvidia.com/jetson/common r32.6 main" >> /etc/apt/sources.list.d/nvidia-l4t-apt-source.list && echo "deb https://repo.download.nvidia.com/jetson/t194 r32.6 main" >> /etc/apt/sources.list.d/nvidia-l4t-apt-source.list
+
+RUN apt-get update && apt-get install -y libcudnn8
+
+# Move compiled opencv to image and relink libraries
+COPY --from=builder /opencv/build/install/lib /lib
+
+# Install required dependencies
+RUN apt-get -y install wget kmod apt-utils build-essential python3.8 python3-distutils && ln -s -f /usr/bin/python3.8 /usr/bin/python3
+RUN wget -qO /tmp/get-pip.py https://bootstrap.pypa.io/get-pip.py && python3 /tmp/get-pip.py
+RUN python3 -m pip install numpy
+
+# Temporary fix to included python3 dev headers to build grpcio
+RUN apt-get -y install python3.8-dev
+
+RUN apt-get clean

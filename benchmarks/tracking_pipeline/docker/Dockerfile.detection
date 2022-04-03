@@ -1,0 +1,15 @@
+ARG BASE
+FROM $BASE
+LABEL maintainer="sbaeurle, simon.baeurle@tum.de"
+
+# Install requirements
+COPY requirements.txt requirements.txt
+RUN python3 -m pip install --user --no-cache-dir -r requirements.txt
+
+COPY models/ models/
+COPY object_detection.py .
+COPY helper.py .
+COPY tracking/ tracking/
+COPY detection/ detection/
+
+CMD ["python3", "object_detection.py", "--config", "models/yolov3/yolov3.cfg", "--model", "models/yolov3/yolov3.weights", "--classes", "models/coco.names", "--tracker-address", "tracker:8181"]

@@ -1,0 +1,15 @@
+ARG BASE
+FROM $BASE
+LABEL maintainer="sbaeurle, simon.baeurle@tum.de"
+
+# Install requirements
+COPY requirements.txt requirements.txt
+RUN python3 -m pip install --user --no-cache-dir -r requirements.txt
+
+COPY video_aggregation.py .
+COPY helper.py .
+COPY tracking/ tracking/
+COPY detection/ detection/
+
+# python video_aggregation.py --grpc --video-source rtp://source:5004 --detector-address detector:8080 --tracker-address tracker:8181
+CMD ["python3", "video_aggregation.py", "--grpc", "--video-source", "data/cam1_dataset.mp4", "--detector-address", "detector:8080", "--tracker-address", "tracker:8181"]

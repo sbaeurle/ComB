@@ -1,0 +1,64 @@
+FROM nvidia/cuda:11.5.1-cudnn8-devel-centos8 AS builder
+ARG TARGETPLATFORM
+ARG OPENCV_VERSION
+
+# Fix CentOS Urls
+RUN sed -i -e "s|mirrorlist=|#mirrorlist=|g" /etc/yum.repos.d/CentOS-* && sed -i -e "s|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g" /etc/yum.repos.d/CentOS-*
+
+RUN dnf -y install python39 python39-devel && python3 -m pip install numpy
+
+RUN dnf -y install dnf-plugin-config-manager epel-release https://mirrors.rpmfusion.org/free/el/rpmfusion-free-release-8.noarch.rpm https://mirrors.rpmfusion.org/nonfree/el/rpmfusion-nonfree-release-8.noarch.rpm \
+    && dnf config-manager --set-enabled powertools
+
+# Install Build Tools and Libraries
+RUN dnf -y install make cmake gcc gcc-c++ wget libarchive \
+    libjpeg-turbo-devel libpng-devel libtiff-devel \
+    ffmpeg-devel libgfortran bsdtar
+    
+# Download and unpack opencv + opencv_contrib sources
+RUN wget -qO opencv.zip https://github.com/opencv/opencv/archive/${OPENCV_VERSION}.zip \
+    && wget -qO opencv_contrib.zip https://github.com/opencv/opencv_contrib/archive/${OPENCV_VERSION}.zip \
+    && mkdir opencv opencv_contrib \
+    && bsdtar --strip-components=1 -C opencv/ -xvf opencv.zip \
+    && bsdtar --strip-components=1 -C opencv_contrib/ -xvf opencv_contrib.zip
+
+# Change into workdir for cmake build of opencv
+WORKDIR /opencv/build/
+
+# Configure cmake build
+RUN mkdir install
+RUN case $TARGETPLATFORM in \
+    linux/amd64) \
+        cmake -D CMAKE_BUILD_TYPE=RELEASE -D CMAKE_INSTALL_PREFIX=install -D OPENCV_EXTRA_MODULES_PATH=../../opencv_contrib/modules -D OPENCV_ENABLE_NONFREE=ON -D OPENCV_GENERATE_PKGCONFIG=ON -D PYTHON_EXECUTABLE=/usr/bin/python3 -D WITH_GTK=OFF -D BUILD_JAVA=OFF -D BUILD_TESTS=OFF -D BUILD_PERF_TESTS=OFF -D BUILD_EXAMPLES=OFF -D WITH_OPENCL=OFF -D OPENCV_DNN_OPENCL=OFF -D WITH_CUDA=ON -D OPENCV_DNN_CUDA=ON -D CUDA_ARCH_BIN="5.3,6.2,7.2,7.5,8.0" -D CUDA_ARCH_PTX="" .. \
+    ;; \
+    linux/arm64) \
+        cmake -D CMAKE_BUILD_TYPE=RELEASE -D CMAKE_INSTALL_PREFIX=install -D OPENCV_EXTRA_MODULES_PATH=../../opencv_contrib/modules -D OPENCV_ENABLE_NONFREE=ON -D OPENCV_GENERATE_PKGCONFIG=ON -D PYTHON_EXECUTABLE=/usr/bin/python3 -D WITH_GTK=OFF -D BUILD_JAVA=OFF -D BUILD_TESTS=OFF -D BUILD_PERF_TESTS=OFF -D BUILD_EXAMPLES=OFF -D ENABLE_NEON=ON -D WITH_OPENCL=OFF -D OPENCV_DNN_OPENCL=OFF -D WITH_CUDA=ON -D OPENCV_DNN_CUDA=ON -D CUDA_ARCH_BIN="5.3,6.2,7.2,7.5,8.0" -D CUDA_ARCH_PTX="" .. \
+    ;; \
+    esac
+
+# Build and install opencv
+RUN make -j$(nproc) && make install
+
+FROM nvidia/cuda:11.5.1-cudnn8-runtime-centos8
+LABEL maintainer="sbaeurle, simon.baeurle@tum.de"
+
+# Fix CentOS Urls
+RUN sed -i -e "s|mirrorlist=|#mirrorlist=|g" /etc/yum.repos.d/CentOS-* && sed -i -e "s|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g" /etc/yum.repos.d/CentOS-*
+
+RUN dnf -y install python39 gcc gcc-c++ && python3 -m pip install numpy
+
+# Install required dependencies
+RUN dnf -y install dnf-plugin-config-manager epel-release https://mirrors.rpmfusion.org/free/el/rpmfusion-free-release-8.noarch.rpm https://mirrors.rpmfusion.org/nonfree/el/rpmfusion-nonfree-release-8.noarch.rpm \
+    && dnf config-manager --set-enabled powertools
+RUN dnf -y install libjpeg-turbo libpng libtiff ffmpeg
+
+# Move compiled opencv to image and relink libraries
+COPY --from=builder /opencv/build/install/lib /lib
+COPY --from=builder /opencv/build/install/lib64 /lib64
+
+# Temporary fix to included python3 devel headers to build grpcio
+RUN dnf -y install python39-devel
+
+RUN dnf clean all
+
+RUN ldconfig

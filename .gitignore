@@ -1,0 +1,12 @@
+tmp/
+.vscode/
+__pycache__/
+*.mp4
+*.json
+*.csv
+evaluation/data/
+evaluation/scripts/
+evaluation/results/
+evaluation/results-hpi/
+evaluation/evaluation
+orchestration/orchestration

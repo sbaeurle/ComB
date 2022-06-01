@@ -116,7 +116,7 @@ class Detector(detection.ObjectDetectionBase):
             h, w = img.shape[:2]
 
             outputs = self.dnn.detect_objects(img)
-            detections = self.dnn.calculate_box_dimensions(
+            detections = self.dnn.calculate_box_dimensions_yolov3(
                 outputs, h, w)
 
         self.metric_service.SetMetrics({"detected-objects": len(detections), "frame-number": frame_number})
